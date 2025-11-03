@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Draw Lines on Denim Image</title>
+  <script src="https://cdn.jsdelivr.net/npm/@recogito/annotorious@latest/dist/annotorious.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@recogito/annotorious@latest/dist/annotorious.min.css" />
+</head>
+<body>
+  <h2>Draw Two Lines on Denim Image</h2>
+  <p>1️⃣ Draw waistband seam → 2️⃣ Draw post-it corner → Then click Submit.</p>
+
+  <!-- The denim image will load dynamically from URL param -->
+  <img id="denim-img" width="400" />
+
+  <form method="POST" id="mturk_form" action="https://www.mturk.com/mturk/externalSubmit">
+    <input type="hidden" name="assignmentId" id="assignmentId" />
+    <input type="hidden" name="x1" id="x1" />
+    <input type="hidden" name="y1" id="y1" />
+    <input type="hidden" name="w1" id="w1" />
+    <input type="hidden" name="h1" id="h1" />
+
+    <input type="hidden" name="x2" id="x2" />
+    <input type="hidden" name="y2" id="y2" />
+    <input type="hidden" name="w2" id="w2" />
+    <input type="hidden" name="h2" id="h2" />
+
+    <br /><br />
+    <input type="submit" value="Submit" />
+  </form>
+
+  <script>
+    // Get image URL from query parameter: ?image=https://....
+    const params = new URLSearchParams(window.location.search);
+    const imageUrl = params.get("image");
+    const img = document.getElementById("denim-img");
+    img.src = imageUrl;
+
+    // Wait for image load before initializing Annotorious
+    img.onload = () => {
+      const anno = Annotorious.init({ image: "denim-img" });
+
+      let count = 0;
+      anno.on("createAnnotation", (a) => {
+        count++;
+        const [x, y, w, h] = a.target.selector.value
+          .replace("xywh=pixel:", "")
+          .split(",")
+          .map(Number);
+
+        if (count === 1) {
+          document.getElementById("x1").value = x;
+          document.getElementById("y1").value = y;
+          document.getElementById("w1").value = w;
+          document.getElementById("h1").value = h;
+          alert("✅ First line saved. Draw second line now!");
+        } else if (count === 2) {
+          document.getElementById("x2").value = x;
+          document.getElementById("y2").value = y;
+          document.getElementById("w2").value = w;
+          document.getElementById("h2").value = h;
+          alert("✅ Second line saved. You can now click Submit!");
+        } else {
+          alert("You already drew two lines. Only two allowed.");
+          anno.removeAnnotation(a.id);
+        }
+      });
+    };
+
+    // Standard MTurk helper
+    function turkSetAssignmentID() {
+      const params = new URLSearchParams(window.location.search);
+      const assignmentId = params.get("assignmentId");
+      document.getElementById("assignmentId").value = assignmentId || "";
+    }
+    turkSetAssignmentID();
+  </script>
+</body>
+</html>
