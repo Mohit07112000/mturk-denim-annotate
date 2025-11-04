@@ -2,78 +2,155 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Draw Lines on Denim Image</title>
-  <script src="https://cdn.jsdelivr.net/npm/@recogito/annotorious@latest/dist/annotorious.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@recogito/annotorious@latest/dist/annotorious.min.css" />
+  <title>Denim Annotation Task</title>
+  <script src="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.css" />
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; }
+    h2 { display: flex; align-items: center; gap: 4px; color: #d33; }
+    #denim-img { 
+      max-width: 90%; 
+      border: 2px solid #ddd; 
+      border-radius: 8px; 
+      display: block; 
+      margin: 10px 0; 
+      position: relative; 
+    }
+    #status { font-weight: 500; margin: 8px 0; }
+    #submitBtn { 
+      padding: 8px 16px; 
+      background: #007bff; 
+      color: #fff; 
+      border: none; 
+      border-radius: 6px; 
+      cursor: pointer; 
+    }
+    #submitBtn[disabled] { background: #aaa; cursor: not-allowed; }
+  </style>
 </head>
 <body>
-  <h2>Draw Two Lines on Denim Image</h2>
-  <p>1️⃣ Draw waistband seam → 2️⃣ Draw post-it corner → Then click Submit.</p>
+  <h2>🧵 Denim Annotation Task</h2>
+  <p>Draw <b>two boxes</b> — one around the waistband seam, and one around the Post-it. Then click <b>Submit</b>.</p>
+  <div id="status">0/2 boxes drawn</div>
 
-  <!-- The denim image will load dynamically from URL param -->
-  <img id="denim-img" width="400" />
+  <img id="denim-img" />
 
-  <form method="POST" id="mturk_form" action="https://www.mturk.com/mturk/externalSubmit">
+  <form method="POST" id="mturk_form">
     <input type="hidden" name="assignmentId" id="assignmentId" />
     <input type="hidden" name="x1" id="x1" />
     <input type="hidden" name="y1" id="y1" />
     <input type="hidden" name="w1" id="w1" />
     <input type="hidden" name="h1" id="h1" />
-
     <input type="hidden" name="x2" id="x2" />
     <input type="hidden" name="y2" id="y2" />
     <input type="hidden" name="w2" id="w2" />
     <input type="hidden" name="h2" id="h2" />
-
     <br /><br />
-    <input type="submit" value="Submit" />
+    <input type="submit" id="submitBtn" value="Submit" disabled />
   </form>
-
   <script>
-    // Get image URL from query parameter: ?image=https://....
     const params = new URLSearchParams(window.location.search);
     const imageUrl = params.get("image");
+    const assignmentId = params.get("assignmentId");
     const img = document.getElementById("denim-img");
-    img.src = imageUrl;
+    const form = document.getElementById("mturk_form");
+    const submitBtn = document.getElementById("submitBtn");
+    const status = document.getElementById("status");
 
-    // Wait for image load before initializing Annotorious
+    img.src = imageUrl || "https://placehold.co/600x400?text=Denim+Image";
+    document.getElementById("assignmentId").value = assignmentId || "";
+
+    const isSandbox = window.location.href.includes("workersandbox");
+    form.action = isSandbox
+      ? "https://workersandbox.mturk.com/mturk/externalSubmit"
+      : "https://www.mturk.com/mturk/externalSubmit";
+
+    if (assignmentId === "ASSIGNMENT_ID_NOT_AVAILABLE" || !assignmentId) {
+      submitBtn.disabled = true;
+      submitBtn.value = "Accept the HIT first";
+    }
+
     img.onload = () => {
-      const anno = Annotorious.init({ image: "denim-img" });
+      // ✨ --- THIS IS THE CHANGE --- ✨
+      const anno = Annotorious.init({ 
+        image: 'denim-img',
+        disableEditor: true ,
+        allowEmpty: true  // This disables the comment/tag popup
+      });
+      // --- End of change ---
 
-      let count = 0;
-      anno.on("createAnnotation", (a) => {
-        count++;
-        const [x, y, w, h] = a.target.selector.value
-          .replace("xywh=pixel:", "")
-          .split(",")
+      let annotations = []; // This array will store our coordinate objects
+
+      // This event now fires *immediately* after the user finishes drawing
+      anno.on('createAnnotation', (annotation) => {
+        console.log('createAnnotation triggered', annotation);
+        
+        const [x, y, w, h] = annotation.target.selector.value
+          .replace('xywh=pixel:', '')
+          .split(',')
           .map(Number);
 
-        if (count === 1) {
-          document.getElementById("x1").value = x;
-          document.getElementById("y1").value = y;
-          document.getElementById("w1").value = w;
-          document.getElementById("h1").value = h;
-          alert("✅ First line saved. Draw second line now!");
-        } else if (count === 2) {
-          document.getElementById("x2").value = x;
-          document.getElementById("y2").value = y;
-          document.getElementById("w2").value = w;
-          document.getElementById("h2").value = h;
-          alert("✅ Second line saved. You can now click Submit!");
-        } else {
-          alert("You already drew two lines. Only two allowed.");
-          anno.removeAnnotation(a.id);
+        annotations.push({ id: annotation.id, x, y, w, h });
+
+        if (annotations.length > 2) {
+          anno.removeAnnotation(annotation.id);
+          annotations.pop();
+          alert("Only 2 boxes allowed!");
+          return;
+        }
+
+        status.textContent = `${annotations.length}/2 boxes drawn`;
+        if (annotations.length === 2) {
+          status.textContent = "✅ All boxes done! Ready to submit.";
+          submitBtn.disabled = false;
         }
       });
-    };
 
-    // Standard MTurk helper
-    function turkSetAssignmentID() {
-      const params = new URLSearchParams(window.location.search);
-      const assignmentId = params.get("assignmentId");
-      document.getElementById("assignmentId").value = assignmentId || "";
-    }
-    turkSetAssignmentID();
+      // Handles moves or resizes
+      anno.on('updateAnnotation', (annotation, previous) => {
+        console.log('updateAnnotation triggered', annotation.id);
+        
+        const index = annotations.findIndex(a => a.id === previous.id);
+        if (index > -1) {
+          const [x, y, w, h] = annotation.target.selector.value
+            .replace('xywh=pixel:', '')
+            .split(',')
+            .map(Number);
+            
+          annotations[index] = { id: annotation.id, x, y, w, h };
+          console.log('Updated coordinates in array:', annotations[index]);
+        }
+      });
+
+      // Handles deletions
+      anno.on('deleteAnnotation', (annotation) => {
+        console.log('deleteAnnotation triggered', annotation.id);
+        
+        annotations = annotations.filter(a => a.id !== annotation.id);
+        
+        status.textContent = `${annotations.length}/2 boxes drawn`;
+        submitBtn.disabled = true;
+      });
+
+      // Handles form submission
+      form.addEventListener('submit', (e) => {
+        // For local testing only
+        e.preventDefault(); 
+        
+        if (annotations.length !== 2) {
+          alert("Please draw exactly 2 boxes before submitting!");
+          return;
+        }
+
+        const [first, second] = annotations;
+        x1.value = first.x; y1.value = first.y; w1.value = first.w; h1.value = first.h;
+        x2.value = second.x; y2.value = second.y; w2.value = second.w; h2.value = second.h;
+
+        console.log("Submitting:", Object.fromEntries(new FormData(form)));
+        
+        // Remember to remove e.preventDefault() for real MTurk submission
+      });
+    };
   </script>
 </body>
 </html>
