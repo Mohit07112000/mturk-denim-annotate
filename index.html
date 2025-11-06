@@ -2,19 +2,16 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Denim Annotation Task</title>
-  <script src="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.css" />
+  <title>Denim Line Annotation Task</title>
   <style>
     body { font-family: system-ui, sans-serif; margin: 20px; }
-    h2 { display: flex; align-items: center; gap: 4px; color: #d33; }
+    h2 { color: #d33; }
     #denim-img { 
       max-width: 90%; 
       border: 2px solid #ddd; 
       border-radius: 8px; 
       display: block; 
       margin: 10px 0; 
-      position: relative; 
     }
     #status { font-weight: 500; margin: 8px 0; }
     #submitBtn { 
@@ -26,28 +23,41 @@
       cursor: pointer; 
     }
     #submitBtn[disabled] { background: #aaa; cursor: not-allowed; }
+    .canvas-container { position: relative; display: inline-block; }
+    #lineCanvas { position: absolute; left: 0; top: 0; cursor: crosshair; }
   </style>
 </head>
 <body>
-  <h2>🧵 Denim Annotation Task</h2>
-  <p>Draw <b>two boxes</b> — one around the waistband seam, and one around the Post-it. Then click <b>Submit</b>.</p>
-  <div id="status">0/2 boxes drawn</div>
+  <h2>🧵 Denim Line Annotation Task</h2>
+  <p>
+    Please draw <b>two straight lines</b> in order:
+    <ol>
+      <li><b>First line</b> → along the <b>waistband seam</b></li>
+      <li><b>Second line</b> → along the <b>Post-it edge</b></li>
+    </ol>
+    Once both are drawn, click <b>Submit</b>.
+  </p>
+  <div id="status">0/2 lines drawn</div>
 
-  <img id="denim-img" />
+  <div class="canvas-container">
+    <img id="denim-img" />
+    <canvas id="lineCanvas"></canvas>
+  </div>
 
   <form method="POST" id="mturk_form">
     <input type="hidden" name="assignmentId" id="assignmentId" />
-    <input type="hidden" name="x1" id="x1" />
-    <input type="hidden" name="y1" id="y1" />
-    <input type="hidden" name="w1" id="w1" />
-    <input type="hidden" name="h1" id="h1" />
-    <input type="hidden" name="x2" id="x2" />
-    <input type="hidden" name="y2" id="y2" />
-    <input type="hidden" name="w2" id="w2" />
-    <input type="hidden" name="h2" id="h2" />
-    <br /><br />
+    <input type="hidden" name="waist_x1" id="waist_x1" />
+    <input type="hidden" name="waist_y1" id="waist_y1" />
+    <input type="hidden" name="waist_x2" id="waist_x2" />
+    <input type="hidden" name="waist_y2" id="waist_y2" />
+    <input type="hidden" name="postit_x1" id="postit_x1" />
+    <input type="hidden" name="postit_y1" id="postit_y1" />
+    <input type="hidden" name="postit_x2" id="postit_x2" />
+    <input type="hidden" name="postit_y2" id="postit_y2" />
+    <br><br>
     <input type="submit" id="submitBtn" value="Submit" disabled />
   </form>
+
   <script>
     const params = new URLSearchParams(window.location.search);
     const imageUrl = params.get("image");
@@ -56,6 +66,8 @@
     const form = document.getElementById("mturk_form");
     const submitBtn = document.getElementById("submitBtn");
     const status = document.getElementById("status");
+    const canvas = document.getElementById("lineCanvas");
+    const ctx = canvas.getContext("2d");
 
     img.src = imageUrl || "https://placehold.co/600x400?text=Denim+Image";
     document.getElementById("assignmentId").value = assignmentId || "";
@@ -71,83 +83,88 @@
     }
 
     img.onload = () => {
-      // ✨ --- THIS IS THE CHANGE --- ✨
-      const anno = Annotorious.init({ 
-        image: 'denim-img',
-        disableEditor: true ,
-        allowEmpty: true  // This disables the comment/tag popup
-      });
-      // --- End of change ---
+      canvas.width = img.clientWidth;
+      canvas.height = img.clientHeight;
 
-      let annotations = []; // This array will store our coordinate objects
+      let lines = [];
+      let startPoint = null;
 
-      // This event now fires *immediately* after the user finishes drawing
-      anno.on('createAnnotation', (annotation) => {
-        console.log('createAnnotation triggered', annotation);
-        
-        const [x, y, w, h] = annotation.target.selector.value
-          .replace('xywh=pixel:', '')
-          .split(',')
-          .map(Number);
-
-        annotations.push({ id: annotation.id, x, y, w, h });
-
-        if (annotations.length > 2) {
-          anno.removeAnnotation(annotation.id);
-          annotations.pop();
-          alert("Only 2 boxes allowed!");
+      canvas.addEventListener("mousedown", (e) => {
+        if (lines.length >= 2) {
+          alert("You can only draw two lines — waistband and Post-it.");
           return;
         }
+        const rect = canvas.getBoundingClientRect();
+        startPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      });
 
-        status.textContent = `${annotations.length}/2 boxes drawn`;
-        if (annotations.length === 2) {
-          status.textContent = "✅ All boxes done! Ready to submit.";
+      canvas.addEventListener("mouseup", (e) => {
+        if (!startPoint) return;
+        const rect = canvas.getBoundingClientRect();
+        const endPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        lines.push({ start: startPoint, end: endPoint });
+        startPoint = null;
+        drawLines();
+        updateStatus();
+      });
+
+      function drawLines() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#ff6600";
+
+        lines.forEach((l, i) => {
+          ctx.beginPath();
+          ctx.moveTo(l.start.x, l.start.y);
+          ctx.lineTo(l.end.x, l.end.y);
+          ctx.stroke();
+
+          // Label each line visually
+          ctx.fillStyle = "#000";
+          ctx.font = "14px sans-serif";
+          const label = i === 0 ? "Waistband" : "Post-it";
+          ctx.fillText(label, l.end.x + 5, l.end.y);
+        });
+      }
+
+      function updateStatus() {
+        if (lines.length === 0) {
+          status.textContent = "0/2 lines drawn";
+        } else if (lines.length === 1) {
+          status.textContent = "✅ Waistband line done (1/2)";
+        } else if (lines.length === 2) {
+          status.textContent = "✅ Both lines done! Ready to submit.";
           submitBtn.disabled = false;
         }
-      });
+      }
 
-      // Handles moves or resizes
-      anno.on('updateAnnotation', (annotation, previous) => {
-        console.log('updateAnnotation triggered', annotation.id);
-        
-        const index = annotations.findIndex(a => a.id === previous.id);
-        if (index > -1) {
-          const [x, y, w, h] = annotation.target.selector.value
-            .replace('xywh=pixel:', '')
-            .split(',')
-            .map(Number);
-            
-          annotations[index] = { id: annotation.id, x, y, w, h };
-          console.log('Updated coordinates in array:', annotations[index]);
-        }
-      });
-
-      // Handles deletions
-      anno.on('deleteAnnotation', (annotation) => {
-        console.log('deleteAnnotation triggered', annotation.id);
-        
-        annotations = annotations.filter(a => a.id !== annotation.id);
-        
-        status.textContent = `${annotations.length}/2 boxes drawn`;
-        submitBtn.disabled = true;
-      });
-
-      // Handles form submission
-      form.addEventListener('submit', (e) => {
-        // For local testing only
-        
-        if (annotations.length !== 2) {
-          alert("Please draw exactly 2 boxes before submitting!");
+      form.addEventListener("submit", (e) => {
+        if (lines.length !== 2) {
+          alert("Please draw both lines before submitting!");
+          // e.preventDefault();
           return;
         }
 
-        const [first, second] = annotations;
-        x1.value = first.x; y1.value = first.y; w1.value = first.w; h1.value = first.h;
-        x2.value = second.x; y2.value = second.y; w2.value = second.w; h2.value = second.h;
+        const [waist, postit] = lines;
 
-        console.log("Submitting:", Object.fromEntries(new FormData(form)));
-        
-        // Remember to remove e.preventDefault() for real MTurk submission
+        document.getElementById("waist_x1").value = waist.start.x;
+        document.getElementById("waist_y1").value = waist.start.y;
+        document.getElementById("waist_x2").value = waist.end.x;
+        document.getElementById("waist_y2").value = waist.end.y;
+
+        document.getElementById("postit_x1").value = postit.start.x;
+        document.getElementById("postit_y1").value = postit.start.y;
+        document.getElementById("postit_x2").value = postit.end.x;
+        document.getElementById("postit_y2").value = postit.end.y;
+
+        console.log("Submitting Coordinates:", {
+          assignmentId,
+          waistband: waist,
+          postit
+        });
+
+        // For testing only — comment this out when going live
+        // e.preventDefault();
       });
     };
   </script>
