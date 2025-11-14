@@ -3,8 +3,6 @@
 <head>
   <meta charset="UTF-8" />
   <title>Denim Line Annotation Task</title>
-  <script src="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.css" />
   <style>
     body { font-family: system-ui, sans-serif; margin: 20px; }
     h2 { color: #d33; }
@@ -25,70 +23,54 @@
       cursor: pointer; 
     }
     #submitBtn[disabled] { background: #aaa; cursor: not-allowed; }
-    .hidden { display: none; }
+    .canvas-container { position: relative; display: inline-block; }
+    #lineCanvas { position: absolute; left: 0; top: 0; cursor: crosshair; }
   </style>
 </head>
 <body>
+  <h2>🧵 Denim Line Annotation Task</h2>
+  <p>
+    Please draw <b>two straight lines</b> in order:
+    <ol>
+      <li><b>First line</b> → along the <b>waistband seam</b></li>
+      <li><b>Second line</b> → along the <b>Post-it edge</b></li>
+    </ol>
+    Once both are drawn, click <b>Submit</b>.
+  </p>
+  <div id="status">0/2 lines drawn</div>
 
-  <!-- Restriction Message -->
-  <div id="access-denied" class="hidden" style="text-align:center; margin-top:100px;">
-    <h2 style="color:#d33;">⚠️ This page is not accessible directly</h2>
-    <p>Please open this task through <b>Amazon Mechanical Turk</b> to view and submit your annotations.</p>
-  </div>
-
-  <!-- Annotation Task Section -->
-  <div id="annotation-task">
-    <h2>🧵 Denim Line Annotation Task</h2>
-    <p>
-      Please draw <b>two straight lines</b> in this order:
-      <ol>
-        <li><b>First line</b> → along the <b>waistband seam</b></li>
-        <li><b>Second line</b> → along the <b>Post-it edge</b></li>
-      </ol>
-      Once both are drawn, click <b>Submit</b>.
-    </p>
-    <div id="status">0/2 lines drawn</div>
-
+  <div class="canvas-container">
     <img id="denim-img" />
-
-    <form method="POST" id="mturk_form">
-      <input type="hidden" name="assignmentId" id="assignmentId" />
-      <input type="hidden" name="waist_x1" id="waist_x1" />
-      <input type="hidden" name="waist_y1" id="waist_y1" />
-      <input type="hidden" name="waist_x2" id="waist_x2" />
-      <input type="hidden" name="waist_y2" id="waist_y2" />
-      <input type="hidden" name="postit_x1" id="postit_x1" />
-      <input type="hidden" name="postit_y1" id="postit_y1" />
-      <input type="hidden" name="postit_x2" id="postit_x2" />
-      <input type="hidden" name="postit_y2" id="postit_y2" />
-      <br><br>
-      <input type="submit" id="submitBtn" value="Submit" disabled />
-    </form>
+    <canvas id="lineCanvas"></canvas>
   </div>
+
+  <form method="POST" id="mturk_form">
+    <input type="hidden" name="assignmentId" id="assignmentId" />
+    <input type="hidden" name="waist_x1" id="waist_x1" />
+    <input type="hidden" name="waist_y1" id="waist_y1" />
+    <input type="hidden" name="waist_x2" id="waist_x2" />
+    <input type="hidden" name="waist_y2" id="waist_y2" />
+    <input type="hidden" name="postit_x1" id="postit_x1" />
+    <input type="hidden" name="postit_y1" id="postit_y1" />
+    <input type="hidden" name="postit_x2" id="postit_x2" />
+    <input type="hidden" name="postit_y2" id="postit_y2" />
+    <br><br>
+    <input type="submit" id="submitBtn" value="Submit" disabled />
+  </form>
 
   <script>
     const params = new URLSearchParams(window.location.search);
     const imageUrl = params.get("image");
     const assignmentId = params.get("assignmentId");
-
-    const deniedSection = document.getElementById("access-denied");
-    const annotationTask = document.getElementById("annotation-task");
-
-    // 🔒 Hide page if no assignmentId or image param
-    if (!assignmentId || !imageUrl || assignmentId === "ASSIGNMENT_ID_NOT_AVAILABLE") {
-      annotationTask.classList.add("hidden");
-      deniedSection.classList.remove("hidden");
-      throw new Error("Missing assignmentId or image parameter — stopping script.");
-    }
-
-    // Proceed with Annotorious only if valid params
     const img = document.getElementById("denim-img");
     const form = document.getElementById("mturk_form");
     const submitBtn = document.getElementById("submitBtn");
     const status = document.getElementById("status");
+    const canvas = document.getElementById("lineCanvas");
+    const ctx = canvas.getContext("2d");
 
-    img.src = imageUrl;
-    document.getElementById("assignmentId").value = assignmentId;
+    img.src = imageUrl || "https://placehold.co/600x400?text=Denim+Image";
+    document.getElementById("assignmentId").value = assignmentId || "";
 
     const isSandbox = window.location.href.includes("workersandbox");
     form.action = isSandbox
@@ -101,65 +83,88 @@
     }
 
     img.onload = () => {
-      const anno = Annotorious.init({
-        image: 'denim-img',
-        disableEditor: true,
-        allowEmpty: true
-      });
+      canvas.width = img.clientWidth;
+      canvas.height = img.clientHeight;
 
       let lines = [];
+      let startPoint = null;
 
-      // Custom logic to simulate line drawing (two boxes approximating line endpoints)
-      anno.on('createAnnotation', (annotation) => {
-        const [x, y, w, h] = annotation.target.selector.value
-          .replace('xywh=pixel:', '')
-          .split(',')
-          .map(Number);
-
-        const line = { x1: x, y1: y, x2: x + w, y2: y + h };
-        lines.push(line);
-
-        if (lines.length > 2) {
-          anno.removeAnnotation(annotation.id);
-          lines.pop();
-          alert("Only 2 lines allowed (Waistband + Post-it).");
+      canvas.addEventListener("mousedown", (e) => {
+        if (lines.length >= 2) {
+          alert("You can only draw two lines — waistband and Post-it.");
           return;
         }
+        const rect = canvas.getBoundingClientRect();
+        startPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      });
 
-        status.textContent = `${lines.length}/2 lines drawn`;
-        if (lines.length === 2) {
+      canvas.addEventListener("mouseup", (e) => {
+        if (!startPoint) return;
+        const rect = canvas.getBoundingClientRect();
+        const endPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        lines.push({ start: startPoint, end: endPoint });
+        startPoint = null;
+        drawLines();
+        updateStatus();
+      });
+
+      function drawLines() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#ff6600";
+
+        lines.forEach((l, i) => {
+          ctx.beginPath();
+          ctx.moveTo(l.start.x, l.start.y);
+          ctx.lineTo(l.end.x, l.end.y);
+          ctx.stroke();
+
+          // Label each line visually
+          ctx.fillStyle = "#000";
+          ctx.font = "14px sans-serif";
+          const label = i === 0 ? "Waistband" : "Post-it";
+          ctx.fillText(label, l.end.x + 5, l.end.y);
+        });
+      }
+
+      function updateStatus() {
+        if (lines.length === 0) {
+          status.textContent = "0/2 lines drawn";
+        } else if (lines.length === 1) {
+          status.textContent = "✅ Waistband line done (1/2)";
+        } else if (lines.length === 2) {
           status.textContent = "✅ Both lines done! Ready to submit.";
           submitBtn.disabled = false;
         }
-      });
+      }
 
       form.addEventListener("submit", (e) => {
         if (lines.length !== 2) {
-          alert("Please draw exactly 2 lines before submitting!");
-          e.preventDefault();
+          alert("Please draw both lines before submitting!");
+          // e.preventDefault();
           return;
         }
 
         const [waist, postit] = lines;
 
-        document.getElementById("waist_x1").value = waist.x1;
-        document.getElementById("waist_y1").value = waist.y1;
-        document.getElementById("waist_x2").value = waist.x2;
-        document.getElementById("waist_y2").value = waist.y2;
+        document.getElementById("waist_x1").value = waist.start.x;
+        document.getElementById("waist_y1").value = waist.start.y;
+        document.getElementById("waist_x2").value = waist.end.x;
+        document.getElementById("waist_y2").value = waist.end.y;
 
-        document.getElementById("postit_x1").value = postit.x1;
-        document.getElementById("postit_y1").value = postit.y1;
-        document.getElementById("postit_x2").value = postit.x2;
-        document.getElementById("postit_y2").value = postit.y2;
+        document.getElementById("postit_x1").value = postit.start.x;
+        document.getElementById("postit_y1").value = postit.start.y;
+        document.getElementById("postit_x2").value = postit.end.x;
+        document.getElementById("postit_y2").value = postit.end.y;
 
-        console.log("Submitting Coordinates:", 
+        console.log("Submitting Coordinates:", {
           assignmentId,
-          waist,
+          waistband: waist,
           postit
-        );
-console.log({waist})
-console.log({postit})
-        // Remove e.preventDefault() for live MTurk submissions
+        });
+console.log('waist',waist.start.x, waist.start.y,waist.end.x, waist.end.y)
+console.log('postit',postit.start.x,postit.start.y,postit.end.x, postit.end.y)
+        // For testing only — comment this out when going live
         // e.preventDefault();
       });
     };
