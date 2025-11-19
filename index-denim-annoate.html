@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Denim Annotation Task</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@recogito/annotorious@2.7.12/dist/annotorious.min.css" />
+
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; }
+    h2 { display: flex; align-items: center; gap: 4px; color: #d33; }
+
+    #denim-img { 
+      max-width: 90%; 
+      border: 2px solid #ddd; 
+      border-radius: 8px; 
+      display: block; 
+      margin: 10px 0; 
+      position: relative;
+    }
+
+    .pixel-label {
+      position: absolute;
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      padding: 2px 6px;
+      font-size: 12px;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    #status { font-weight: 500; margin: 8px 0; }
+
+    #submitBtn { 
+      padding: 8px 16px; 
+      background: #007bff; 
+      color: #fff; 
+      border: none; 
+      border-radius: 6px; 
+      cursor: pointer; 
+    }
+
+    #submitBtn[disabled] { background: #aaa; cursor: not-allowed; }
+  </style>
+
+</head>
+
+<body>
+
+  <h2>🧵 Denim Annotation Task</h2>
+  <p>Draw <b>two boxes</b> — one around the waistband seam and one around the Post-it. Pixel size will show automatically.</p>
+
+  <div id="status">0/2 boxes drawn</div>
+
+  <img id="denim-img" />
+
+  <form method="POST" id="mturk_form">
+    <input type="hidden" name="assignmentId" id="assignmentId" />
+
+    <input type="hidden" name="x1" id="x1" />
+    <input type="hidden" name="y1" id="y1" />
+    <input type="hidden" name="w1" id="w1" />
+    <input type="hidden" name="h1" id="h1" />
+
+    <input type="hidden" name="x2" id="x2" />
+    <input type="hidden" name="y2" id="y2" />
+    <input type="hidden" name="w2" id="w2" />
+    <input type="hidden" name="h2" id="h2" />
+
+    <br /><br />
+    <input type="submit" id="submitBtn" value="Submit" disabled />
+  </form>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const imageUrl = params.get("image");
+    const assignmentId = params.get("assignmentId");
+
+    const img = document.getElementById("denim-img");
+    img.src = imageUrl || "https://placehold.co/600x400?text=Denim+Image";
+
+    document.getElementById("assignmentId").value = assignmentId || "";
+
+    const form = document.getElementById("mturk_form");
+    const submitBtn = document.getElementById("submitBtn");
+    const status = document.getElementById("status");
+
+    const isSandbox = window.location.href.includes("workersandbox");
+    form.action = isSandbox
+      ? "https://workersandbox.mturk.com/mturk/externalSubmit"
+      : "https://www.mturk.com/mturk/externalSubmit";
+
+    if (assignmentId === "ASSIGNMENT_ID_NOT_AVAILABLE" || !assignmentId) {
+      submitBtn.disabled = true;
+      submitBtn.value = "Accept the HIT first";
+    }
+
+    img.onload = () => {
+
+      const anno = Annotorious.init({
+        image: "denim-img",
+        disableEditor: true,
+        allowEmpty: true
+      });
+
+      let annotations = [];
+
+      // Helper to create pixel label
+      function createPixelLabel(x, y, w, h) {
+        const label = document.createElement("div");
+        label.className = "pixel-label";
+        label.textContent = `${w}px × ${h}px`;
+        label.style.left = `${img.offsetLeft + x}px`;
+        label.style.top  = `${img.offsetTop + y - 22}px`;
+        document.body.appendChild(label);
+        return label;
+      }
+
+      // --- CREATE ---
+      anno.on("createAnnotation", (annotation) => {
+        const [x, y, w, h] = annotation.target.selector.value
+          .replace("xywh=pixel:", "")
+          .split(",").map(Number);
+
+        if (annotations.length >= 2) {
+          anno.removeAnnotation(annotation.id);
+          alert("Only 2 boxes allowed!");
+          return;
+        }
+
+        const label = createPixelLabel(x, y, w, h);
+
+        annotations.push({ id: annotation.id, x, y, w, h, label });
+
+        status.textContent = `${annotations.length}/2 boxes drawn`;
+        if (annotations.length === 2) {
+          submitBtn.disabled = false;
+          status.textContent = "✅ All boxes done! Ready to submit.";
+        }
+      });
+
+      // --- UPDATE (drag/resize) ---
+      anno.on("updateAnnotation", (annotation, prev) => {
+        const index = annotations.findIndex(a => a.id === prev.id);
+        if (index > -1) {
+
+          const [x, y, w, h] = annotation.target.selector.value
+            .replace("xywh=pixel:", "")
+            .split(",").map(Number);
+
+          const updated = annotations[index];
+
+          updated.label.textContent = `${w}px × ${h}px`;
+          updated.label.style.left = `${img.offsetLeft + x}px`;
+          updated.label.style.top  = `${img.offsetTop + y - 22}px`;
+
+          updated.x = x;
+          updated.y = y;
+          updated.w = w;
+          updated.h = h;
+        }
+      });
+
+      // --- DELETE ---
+      anno.on("deleteAnnotation", (annotation) => {
+        const index = annotations.findIndex(a => a.id === annotation.id);
+        if (index > -1) {
+          annotations[index].label.remove();
+          annotations.splice(index, 1);
+        }
+
+        submitBtn.disabled = true;
+        status.textContent = `${annotations.length}/2 boxes drawn`;
+      });
+
+      // --- SUBMIT ---
+      form.addEventListener("submit", (e) => {
+        if (annotations.length !== 2) {
+          alert("Please draw exactly 2 boxes before submitting!");
+          e.preventDefault();
+          return;
+        }
+
+        const [first, second] = annotations;
+
+        x1.value = first.x; y1.value = first.y; w1.value = first.w; h1.value = first.h;
+        x2.value = second.x; y2.value = second.y; w2.value = second.w; h2.value = second.h;
+      });
+
+    };
+  </script>
+
+</body>
+</html>
